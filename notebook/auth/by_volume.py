@@ -9,12 +9,15 @@ from tornado.escape import url_escape
 from tornado.simple_httpclient import AsyncHTTPClient
 from notebook.auth.login import LoginHandler as BaseLoginHandler
 from notebook.auth.logout import LogoutHandler as BaseLogoutHandler
+import girder_client
 
 GIRDER_URL = os.environ.get("GIRDER_URL", "https://girder.hub.yt/")
+GIRDER_API_URL = os.environ.get("GIRDER_API_URL", GIRDER_URL + "api/v1")
+
 
 class VolumesClient(Configurable):
     '''
-    Client for the volume service. Requests that volumes be mounted / 
+    Client for the volume service. Requests that volumes be mounted /
     unmounted from running containers.
     '''
     server_url = Unicode('', config=True,
@@ -23,34 +26,34 @@ class VolumesClient(Configurable):
     @gen.coroutine
     def create_volume(self, girder_token, collection_id):
         http_client = AsyncHTTPClient()
-        response = yield http_client.fetch(self.server_url + '/api/volumes',
-                                           method='POST',
-                                           headers={
-                                               'Content-Type': 'application/json'
-                                           },
-                                           body=json.dumps({
-                                               'girder_token': girder_token,
-                                               'collection_id': collection_id,
-                                           }),
-                                           raise_error=False
-                                           )
+        response = \
+            yield http_client.fetch(self.server_url + '/api/volumes',
+                                    method='POST',
+                                    headers={
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body=json.dumps({
+                                        'girder_token': girder_token,
+                                        'collection_id': collection_id,
+                                    }),
+                                    raise_error=False)
         raise gen.Return(response)
 
     @gen.coroutine
     def mount_volume(self, girder_token, collection_id, tmpnb_id):
         http_client = AsyncHTTPClient()
-        response = yield http_client.fetch(self.server_url + '/api/mounts',
-                                           method='POST',
-                                           headers={
-                                               'Content-Type': 'application/json'
-                                           },
-                                           body=json.dumps({
-                                               'girder_token': girder_token,
-                                               'collection_id': collection_id,
-                                               'tmpnb_id': tmpnb_id
-                                           }),
-                                           raise_error=False
-                                           )
+        response = \
+            yield http_client.fetch(self.server_url + '/api/mounts',
+                                    method='POST',
+                                    headers={
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body=json.dumps({
+                                        'girder_token': girder_token,
+                                        'collection_id': collection_id,
+                                        'tmpnb_id': tmpnb_id
+                                    }),
+                                    raise_error=False)
         raise gen.Return(response)
 
     @gen.coroutine
@@ -65,16 +68,15 @@ class VolumesClient(Configurable):
     @gen.coroutine
     def unmount_volume(self, mount_id):
         http_client = AsyncHTTPClient()
-        response = yield http_client.fetch(self.server_url + '/api/mounts/' + mount_id,
-                                           method='DELETE',
-                                           raise_error=False
-                                           )
+        url = self.server_url + '/api/mounts/' + mount_id
+        response = yield http_client.fetch(url, method='DELETE',
+                                           raise_error=False)
         raise gen.Return(response)
 
 
 class LoginHandler(BaseLoginHandler):
     '''
-    Renders a login page. Contacts the volume manager to attach the user's 
+    Renders a login page. Contacts the volume manager to attach the user's
     permanent storage. Refuses login if the volume manager indicates an error.
     '''
 
@@ -106,11 +108,13 @@ class LoginHandler(BaseLoginHandler):
     @gen.coroutine
     def login(self, girder_token, collection_id):
         '''
-        Requests that the volume owned by the user be mounted as the root of the 
-        notebook working directory in this server's container. Renders the login
-        page with a human-readable error if mounting fails for any reason. Sets
+        Requests that the volume owned by the user be mounted as the root of
+        the notebook working directory in this server's container. Renders the
+        login page with a human-readable error if mounting fails for any
+        reason. Sets
         '''
-        # Get current tmpnb ID from the base URL, error if one cannot be found:
+        # Get current tmpnb ID from the base URL,
+        # error if one cannot be found:
         # this auth handler only works within tmpnb!
         tmpnb_id = self.base_url.split('/')[2]
 
@@ -125,17 +129,18 @@ class LoginHandler(BaseLoginHandler):
                 register_state='active',
                 login_state=''
             )
-
         vols = json.loads(result.body.decode('utf-8'))
 
         if collection_id not in (vol["Name"] for vol in vols):
             # Request creation of volume
-            result = yield self.vol_client.create_volume(girder_token, collection_id)
+            result = yield self.vol_client.create_volume(girder_token,
+                                                         collection_id)
 
             if result.code >= 400:
                 if result.code == 599:
                     self.set_status(result.code, 'Timeout')
-                    msg = 'The registration service is down. Try again momentarily.'
+                    msg = ('The registration service is down. '
+                           'Try again momentarily.')
                 elif result.code == 401:
                     self.set_status(result.code)
                     msg = 'The registration key you entered is invalid.'
@@ -154,8 +159,9 @@ class LoginHandler(BaseLoginHandler):
                 )
 
         # Request mount of volume on container
-        result = yield self.vol_client.mount_volume(girder_token, collection_id,
-                                                    tmpnb_id)
+        result = \
+            yield self.vol_client.mount_volume(girder_token, collection_id,
+                                               tmpnb_id)
         if result.code >= 400:
             if result.code == 599:
                 self.set_status(result.code, 'Timeout')
@@ -183,6 +189,10 @@ class LoginHandler(BaseLoginHandler):
         mount = json.loads(result.body.decode('utf-8'))
         self.set_secure_cookie(self.cookie_name, mount['id'])
 
+        # store girder token
+        self.set_secure_cookie("girder_{}".format(self.cookie_name),
+                               girder_token)
+
         # Continue to the original URL
         next_url = self.get_argument('next', default=self.base_url)
         if not next_url.startswith(self.base_url):
@@ -193,7 +203,7 @@ class LoginHandler(BaseLoginHandler):
     @gen.coroutine
     def post(self):
         '''
-        Handles submission of the login form. Posts information about the 
+        Handles submission of the login form. Posts information about the
         current notebook server and the secret volume name entered by the user
         to the dynamic volume manager.
         '''
@@ -214,7 +224,7 @@ class LoginHandler(BaseLoginHandler):
 
 class LogoutHandler(BaseLogoutHandler):
     '''
-    Contacts the volume manager to unmount the user volume. Deletes the user 
+    Contacts the volume manager to unmount the user volume. Deletes the user
     cookie.
     '''
 
@@ -226,11 +236,27 @@ class LogoutHandler(BaseLogoutHandler):
     @web.authenticated
     def get(self):
         '''
-        Clears the login cookie, schedules shutdown of the main loop, and 
+        Clears the login cookie, schedules shutdown of the main loop, and
         redirects the client to the root of the domain.
         '''
         app_log.info('logout triggering scheduled shutdown')
         self.clear_login_cookie()
+
+        girder_cookie_name = "girder_{}".format(self.cookie_name)
+        girder_token = self.get_secure_cookie(girder_cookie_name)
+        self.clear_cookie(girder_cookie_name)
+
+        app_log.info("My current dir %s", os.getcwd())
+        app_log.info("  data = %s", os.listdir("/home/jovyan/work/"))
+        gc = girder_client.GirderClient(apiUrl=GIRDER_API_URL)
+        gc.token = girder_token
+        user_id = gc.get("/user/me")["_id"]
+        params = {'parentType': 'user', 'parentId': user_id,
+                  'name': 'Private'}
+        homeDir = gc.listResource("/folder", params)[0]["_id"]
+        gc.blacklist.append("data")
+        gc.upload('/home/jovyan/work/*.ipynb', homeDir, reuse_existing=True)
+
         # Shutdown the server after this request completes
         loop = ioloop.IOLoop.current()
         loop.add_callback(loop.stop)

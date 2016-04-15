@@ -80,6 +80,13 @@ def get_girder_data(volume_id, girder_token):
     gc.token = girder_token
     gc.downloadFolderRecursive(coll_id, dest)
 
+    # Get user dir
+    user_id = gc.get("/user/me")["_id"]
+    params = {'parentType': 'user', 'parentId': user_id,
+              'name': 'Private'}
+    homeDir = gc.listResource("/folder", params)[0]["_id"]
+    gc.downloadFolderRecursive(homeDir, "/host" + vols[vol_ind]["Mountpoint"])
+
     raise gen.Return(True)  # TODO: make it meaningful
 
 
