@@ -5,6 +5,7 @@ VOLMAN_IMAGE:=tmpnb-volman
 SECRETS_VOLUME:=tmpnb-secrets
 MAX_LOG_SIZE:=50m
 MAX_LOG_ROLLOVER:=10
+GIRDER_URL:=https://girder.hub.yt
 
 help:
 	@cat README.md
@@ -116,12 +117,15 @@ pool: check token-check
 			--container_ip=$(BRIDGE_IP) \
 			--pool_size=$(POOL_SIZE) \
 			--pool_name=tmpnb \
+			--allow-origin='$(GIRDER_URL)' \
+			--allow-headers='Location' \
 			--cull_period=30 \
 			--cull_timeout=600 \
 			--max_dock_workers=16 \
 			--mem_limit=$(MEMORY_LIMIT) \
 			--command='start-notebook.sh \
 			"--NotebookApp.base_url={base_path} \
+			--NotebookApp.allow_origin="$(GIRDER_URL)" \
 			--NotebookApp.login_handler_class=notebook.auth.by_volume.LoginHandler \
 			--NotebookApp.logout_handler_class=notebook.auth.by_volume.LogoutHandler \
 			--VolumesClient.server_url="http://$(BRIDGE_IP):9005" \
@@ -171,6 +175,7 @@ dev-notebook: check
 		-v `pwd`/notebook/auth/by_volume.py:/opt/conda/lib/python3.4/site-packages/notebook/auth/by_volume.py \
 		$(NOTEBOOK_IMAGE) start-notebook.sh \
 			--NotebookApp.base_url=/user/devcontainer \
+			--NotebookApp.allow_origin="*" \
 			--NotebookApp.login_handler_class=notebook.auth.by_volume.LoginHandler \
 			--NotebookApp.logout_handler_class=notebook.auth.by_volume.LogoutHandler
 
